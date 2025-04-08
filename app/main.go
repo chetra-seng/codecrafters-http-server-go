@@ -59,13 +59,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Refactor the code to extract header, body
 	req := make([]byte, 1024)
 	conn.Read(req)
-	header, _ := extractRequest(req)
-
-	reqParts := strings.Split(header, "\r\n")
-	reqLine := reqParts[0]
+	reqLine, headers, _ := extractRequest(req)
 
 	reqLineParts := strings.Split(reqLine, " ")
 	path := reqLineParts[1]
@@ -73,16 +69,29 @@ func main() {
 	switch {
 	case path == "/":
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	case strings.HasPrefix(path, "/echo/"):
+	case strings.HasPrefix(path, "/echo"):
 		str := strings.TrimPrefix(path, "/echo/")
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
+	case strings.HasPrefix(path, "/user-agent"):
+		agent := ""
+		for _, header := range headers {
+			if strings.HasPrefix(header, "User-Agent:") {
+				agent = strings.TrimPrefix(header, "User-Agent: ")
+			}
+		}
+		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(agent)) + "\r\n\r\n" + agent))
+
 	default:
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
 }
 
-func extractRequest(req []byte) (string, string) {
+func extractRequest(req []byte) (string, []string, string) {
 	reqString := string(req)
-	reqParts := strings.Split(reqString, "\r\n\r\n")
-	return reqParts[0], reqParts[1]
+	reqParts := strings.Split(reqString, "\r\n")
+	partLen := len(reqParts);
+	reqLine := reqParts[0]
+	headers := reqParts[1:partLen-1]
+	body := reqParts[partLen-1]
+	return reqLine, headers, body
 }
