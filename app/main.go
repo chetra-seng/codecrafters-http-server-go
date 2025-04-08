@@ -47,17 +47,38 @@ func main() {
 	fmt.Println("Logs from your program will appear here!")
 
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
+
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
 		os.Exit(1)
 	}
 
+	for {
+		go handleConnection(l)
+	}
+
+}
+
+func extractRequest(req []byte) (string, []string, string) {
+	reqString := string(req)
+	reqParts := strings.Split(reqString, "\r\n")
+	partLen := len(reqParts)
+	reqLine := reqParts[0]
+	headers := reqParts[1 : partLen-1]
+	body := reqParts[partLen-1]
+	return reqLine, headers, body
+}
+
+func handleConnection(l net.Listener) {
 	conn, err := l.Accept()
+
 
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
+
+	defer conn.Close();
 
 	req := make([]byte, 1024)
 	conn.Read(req)
@@ -84,14 +105,4 @@ func main() {
 	default:
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 	}
-}
-
-func extractRequest(req []byte) (string, []string, string) {
-	reqString := string(req)
-	reqParts := strings.Split(reqString, "\r\n")
-	partLen := len(reqParts);
-	reqLine := reqParts[0]
-	headers := reqParts[1:partLen-1]
-	body := reqParts[partLen-1]
-	return reqLine, headers, body
 }
