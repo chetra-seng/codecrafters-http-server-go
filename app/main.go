@@ -72,13 +72,12 @@ func extractRequest(req []byte) (string, []string, string) {
 func handleConnection(l net.Listener) {
 	conn, err := l.Accept()
 
-
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
 
-	defer conn.Close();
+	defer conn.Close()
 
 	req := make([]byte, 1024)
 	conn.Read(req)
@@ -101,6 +100,20 @@ func handleConnection(l net.Listener) {
 			}
 		}
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(agent)) + "\r\n\r\n" + agent))
+	case strings.HasPrefix(path, "/files/"):
+		dir := os.Args[2]
+		fileName := dir + strings.TrimPrefix(path, "/files/")
+		_, err := os.Stat(fileName)
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			break
+		}
+		content, err := os.ReadFile(fileName)
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+			break
+		}
+		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
 
 	default:
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
