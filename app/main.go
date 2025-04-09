@@ -79,9 +79,11 @@ func handleConnection(l net.Listener) {
 
 	defer conn.Close()
 
+	// NOTE: This slice will pad '\x00' aka 'null zero' for unused space
 	req := make([]byte, 1024)
+
 	conn.Read(req)
-	reqLine, headers, _ := extractRequest(req)
+	reqLine, headers, body := extractRequest(req)
 
 	reqLineParts := strings.Split(reqLine, " ")
 	path := reqLineParts[1]
@@ -103,17 +105,30 @@ func handleConnection(l net.Listener) {
 	case strings.HasPrefix(path, "/files/"):
 		dir := os.Args[2]
 		fileName := dir + strings.TrimPrefix(path, "/files/")
-		_, err := os.Stat(fileName)
-		if err != nil {
-			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			break
+
+		method := strings.Split(reqLine, " ")[0]
+		if method == "GET" {
+			_, err := os.Stat(fileName)
+			if err != nil {
+				conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+				break
+			}
+			content, err := os.ReadFile(fileName)
+			if err != nil {
+				conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+				break
+			}
+			conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
+		} else if method == "POST" {
+			writeBytes := make([]byte, len(strings.TrimRight(body, "\x00")))
+			copy(writeBytes, body)
+			err := os.WriteFile(fileName, writeBytes, 0644)
+			if err != nil {
+				conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+				break
+			}
+			conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
 		}
-		content, err := os.ReadFile(fileName)
-		if err != nil {
-			conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
-			break
-		}
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
 
 	default:
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
