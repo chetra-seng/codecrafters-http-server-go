@@ -42,6 +42,8 @@ abc                           // The string from the request
 var _ = net.Listen
 var _ = os.Exit
 
+const supportedCompression = "gzip"
+
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
@@ -59,12 +61,26 @@ func main() {
 
 }
 
-func extractRequest(req []byte) (string, []string, string) {
+func extractRequest(req []byte) (string, map[string]string, string) {
+	headers := make(map[string]string)
 	reqString := string(req)
 	reqParts := strings.Split(reqString, "\r\n")
 	partLen := len(reqParts)
+	
+	// NOTE: Format of the request:
+	// requestLine\r\nheader[0]\r\nheader[1]\r\n...header[n]\r\n\r\nbody
+	// part[0] is request line
+	// part[1:n-2] is header, part[n-2] is just space due to \r\n\r\n
+	// part[n-1] is body
+	//
 	reqLine := reqParts[0]
-	headers := reqParts[1 : partLen-1]
+	headerParts := reqParts[1 : partLen-2]
+	fmt.Println("header parts:", headerParts)
+	for _, header := range headerParts {
+		headerParts := strings.Split(header, ": ")
+		headers[headerParts[0]] = headerParts[1]
+	}
+	fmt.Println("headers:", headers)
 	body := reqParts[partLen-1]
 	return reqLine, headers, body
 }
@@ -93,13 +109,18 @@ func handleConnection(l net.Listener) {
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 	case strings.HasPrefix(path, "/echo"):
 		str := strings.TrimPrefix(path, "/echo/")
+		if val, ok := headers["Accept-Encoding"]; ok {
+			if val == supportedCompression {
+				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
+				break
+			}
+		}
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
 	case strings.HasPrefix(path, "/user-agent"):
 		agent := ""
-		for _, header := range headers {
-			if strings.HasPrefix(header, "User-Agent:") {
-				agent = strings.TrimPrefix(header, "User-Agent: ")
-			}
+
+		if val, ok := headers["User-Agent"]; ok {
+			agent = val
 		}
 		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(agent)) + "\r\n\r\n" + agent))
 	case strings.HasPrefix(path, "/files/"):
