@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -66,7 +67,7 @@ func extractRequest(req []byte) (string, map[string]string, string) {
 	reqString := string(req)
 	reqParts := strings.Split(reqString, "\r\n")
 	partLen := len(reqParts)
-	
+
 	// NOTE: Format of the request:
 	// requestLine\r\nheader[0]\r\nheader[1]\r\n...header[n]\r\n\r\nbody
 	// part[0] is request line
@@ -110,7 +111,8 @@ func handleConnection(l net.Listener) {
 	case strings.HasPrefix(path, "/echo"):
 		str := strings.TrimPrefix(path, "/echo/")
 		if val, ok := headers["Accept-Encoding"]; ok {
-			if val == supportedCompression {
+			encodings := strings.Split(val, ", ")
+			if slices.Contains(encodings, supportedCompression) {
 				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
 				break
 			}
