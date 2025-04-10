@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net"
 	"os"
@@ -76,12 +78,10 @@ func extractRequest(req []byte) (string, map[string]string, string) {
 	//
 	reqLine := reqParts[0]
 	headerParts := reqParts[1 : partLen-2]
-	fmt.Println("header parts:", headerParts)
 	for _, header := range headerParts {
 		headerParts := strings.Split(header, ": ")
 		headers[headerParts[0]] = headerParts[1]
 	}
-	fmt.Println("headers:", headers)
 	body := reqParts[partLen-1]
 	return reqLine, headers, body
 }
@@ -113,7 +113,15 @@ func handleConnection(l net.Listener) {
 		if val, ok := headers["Accept-Encoding"]; ok {
 			encodings := strings.Split(val, ", ")
 			if slices.Contains(encodings, supportedCompression) {
-				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
+				var b bytes.Buffer
+				gw := gzip.NewWriter(&b)
+				_, err := gw.Write([]byte(str))
+				gw.Close()
+				if err != nil {
+					conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+					break
+				}
+				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(b.String())) + "\r\n\r\n" + b.String()))
 				break
 			}
 		}
