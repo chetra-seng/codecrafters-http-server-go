@@ -88,7 +88,6 @@ func extractRequest(req []byte) (string, map[string]string, string) {
 
 func handleConnection(l net.Listener) {
 	conn, err := l.Accept()
-
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
@@ -96,72 +95,85 @@ func handleConnection(l net.Listener) {
 
 	defer conn.Close()
 
-	// NOTE: This slice will pad '\x00' aka 'null zero' for unused space
 	req := make([]byte, 1024)
 
-	conn.Read(req)
-	reqLine, headers, body := extractRequest(req)
+	for {
+		// NOTE: This slice will pad '\x00' aka 'null zero' for unused space
 
-	reqLineParts := strings.Split(reqLine, " ")
-	path := reqLineParts[1]
+		conn.Read(req)
+		reqLine, headers, body := extractRequest(req)
 
-	switch {
-	case path == "/":
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	case strings.HasPrefix(path, "/echo"):
-		str := strings.TrimPrefix(path, "/echo/")
-		if val, ok := headers["Accept-Encoding"]; ok {
-			encodings := strings.Split(val, ", ")
-			if slices.Contains(encodings, supportedCompression) {
-				var b bytes.Buffer
-				gw := gzip.NewWriter(&b)
-				_, err := gw.Write([]byte(str))
-				gw.Close()
+		reqLineParts := strings.Split(reqLine, " ")
+		path := reqLineParts[1]
+
+		closeCon := false
+
+		if value, ok := headers["Connection"]; ok && value == "Close" {
+			closeCon = true
+		}
+
+		switch {
+		case path == "/":
+			conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+		case strings.HasPrefix(path, "/echo"):
+			str := strings.TrimPrefix(path, "/echo/")
+			if val, ok := headers["Accept-Encoding"]; ok {
+				encodings := strings.Split(val, ", ")
+				if slices.Contains(encodings, supportedCompression) {
+					var b bytes.Buffer
+					gw := gzip.NewWriter(&b)
+					_, err := gw.Write([]byte(str))
+					gw.Close()
+					if err != nil {
+						conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+						break
+					}
+					conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(b.String())) + "\r\n\r\n" + b.String()))
+					break
+				}
+			}
+			conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
+		case strings.HasPrefix(path, "/user-agent"):
+			agent := ""
+
+			if val, ok := headers["User-Agent"]; ok {
+				agent = val
+			}
+			conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(agent)) + "\r\n\r\n" + agent))
+		case strings.HasPrefix(path, "/files/"):
+			dir := os.Args[2]
+			fileName := dir + strings.TrimPrefix(path, "/files/")
+
+			method := strings.Split(reqLine, " ")[0]
+			if method == "GET" {
+				_, err := os.Stat(fileName)
+				if err != nil {
+					conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+					break
+				}
+				content, err := os.ReadFile(fileName)
 				if err != nil {
 					conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
 					break
 				}
-				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(b.String())) + "\r\n\r\n" + b.String()))
-				break
+				conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
+			} else if method == "POST" {
+				writeBytes := make([]byte, len(strings.TrimRight(body, "\x00")))
+				copy(writeBytes, body)
+				err := os.WriteFile(fileName, writeBytes, 0644)
+				if err != nil {
+					conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
+					break
+				}
+				conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
 			}
-		}
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(str)) + "\r\n\r\n" + str))
-	case strings.HasPrefix(path, "/user-agent"):
-		agent := ""
-
-		if val, ok := headers["User-Agent"]; ok {
-			agent = val
-		}
-		conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: text/plain\r\nContent-Length: " + strconv.Itoa(len(agent)) + "\r\n\r\n" + agent))
-	case strings.HasPrefix(path, "/files/"):
-		dir := os.Args[2]
-		fileName := dir + strings.TrimPrefix(path, "/files/")
-
-		method := strings.Split(reqLine, " ")[0]
-		if method == "GET" {
-			_, err := os.Stat(fileName)
-			if err != nil {
-				conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-				break
-			}
-			content, err := os.ReadFile(fileName)
-			if err != nil {
-				conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
-				break
-			}
-			conn.Write([]byte("HTTP/1.1 200 OK\r\n" + "Content-Type: application/octet-stream\r\nContent-Length: " + strconv.Itoa(len(content)) + "\r\n\r\n" + string(content)))
-		} else if method == "POST" {
-			writeBytes := make([]byte, len(strings.TrimRight(body, "\x00")))
-			copy(writeBytes, body)
-			err := os.WriteFile(fileName, writeBytes, 0644)
-			if err != nil {
-				conn.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n\r\n"))
-				break
-			}
-			conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
+		default:
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
 		}
 
-	default:
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		if closeCon {
+			return
+		}
 	}
+
 }
