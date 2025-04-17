@@ -47,6 +47,8 @@ var _ = os.Exit
 
 const supportedCompression = "gzip"
 
+type application struct{}
+
 // NOTE: Please don't judge me
 // I'll refactor my code later :D
 func main() {
@@ -126,7 +128,7 @@ func handleConnection(conn net.Conn) {
 
 		switch {
 		case path == "/":
-			writeResponse(conn, "HTTP/1.1 200 OK", resHeader, "", closeCon)
+			HandleHome(conn, map[string]string{}, closeCon)
 
 		case strings.HasPrefix(path, "/echo"):
 			str := strings.TrimPrefix(path, "/echo/")
