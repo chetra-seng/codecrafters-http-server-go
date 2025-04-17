@@ -15,6 +15,7 @@ func (app *application) handleHome(con net.Conn, headers map[string]string, clos
 }
 
 func (app *application) handleEcho(con net.Conn, headers map[string]string, closed bool, path string) {
+	supportedCompression := "gzip"
 	str := strings.TrimPrefix(path, "/echo/")
 	if val, ok := headers["Accept-Encoding"]; ok {
 		encodings := strings.Split(val, ", ")
@@ -38,7 +39,6 @@ func (app *application) handleEcho(con net.Conn, headers map[string]string, clos
 	}
 
 	headers["Content-Type"] = "text/plain"
-	headers["Content-Encoding"] = "gzip"
 	headers["Content-Length"] = strconv.Itoa(len(str))
 	app.writeResponse(con, "HTTP/1.1 200 OK", headers, str, closed)
 }
@@ -90,4 +90,8 @@ func (app *application) handleFiles(con net.Conn, headers map[string]string, bod
 		app.writeResponse(con, "HTTP/1.1 201 Created", map[string]string{}, "", closed)
 		con.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
 	}
+}
+
+func (app *application) handleNotFound(con net.Conn, headers map[string]string, closed bool) {
+	app.writeResponse(con, "HTTP/1.1 404 Not Found", headers, "", closed)
 }
